@@ -10,6 +10,7 @@ import random
 import re
 import time
 import traceback
+import subprocess
 
 from .common import InfoExtractor, SearchInfoExtractor
 from ..jsinterp import JSInterpreter
@@ -694,6 +695,27 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
                 'youtube_include_dash_manifest': True,
                 'format': '141/bestaudio[ext=m4a]',
             },
+
+        },
+
+        # Same as above, but with bypass_429 enabled
+        {
+            'url': 'https://www.youtube.com/watch?v=IB3lcPjvWLA',
+            'info_dict': {
+                'id': 'IB3lcPjvWLA',
+                'ext': 'm4a',
+                'title': 'Afrojack, Spree Wilson - The Spark (Official Music Video) ft. Spree Wilson',
+                'description': 'md5:8f5e2b82460520b619ccac1f509d43bf',
+                'duration': 244,
+                'uploader': 'AfrojackVEVO',
+                'uploader_id': 'AfrojackVEVO',
+                'upload_date': '20131011',
+            },
+            'params': {
+                'youtube_bypass_429': True,
+
+            },
+
         },
         # JS player signature function name containing $
         {
@@ -1271,10 +1293,19 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
         super(YoutubeIE, self).__init__(*args, **kwargs)
         self._player_cache = {}
 
+    def report_download_webpage(self, video_id):
+        """Report webpage download."""
+        if self._downloader.params.get('youtube_bypass_429', False):
+            self.to_screen('%s: Downloading webpage (using rate limiting)' % video_id)
+        else:
+            self.to_screen('%s: Downloading webpage' % video_id)
+
     def report_video_info_webpage_download(self, video_id):
         """Report attempt to download video info webpage."""
-        self.to_screen('%s: Downloading video info webpage' % video_id)
-
+        if self._downloader.params.get('youtube_bypass_429', False):
+            self.to_screen('%s: Downloading video info webpage (using rate limiting)' % video_id)
+        else:
+            self.to_screen('%s: Downloading video info webpage' % video_id)
     def report_information_extraction(self, video_id):
         """Report attempt to extract video information."""
         self.to_screen('%s: Extracting video information' % video_id)
@@ -1301,6 +1332,29 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             raise ExtractorError('Cannot identify player %r' % player_url)
         return id_m.group('ext'), id_m.group('id')
 
+    def _rate_limit_download(self, url, video_id, note=None, **kwargs):
+
+        if not self._downloader.params.get('youtube_bypass_429', False):
+            return self._download_webpage(url, video_id, note=note, **kwargs)
+        if note is not None:
+            if note is not False:
+                if video_id is None:
+                    self.to_screen('%s (using rate limiting)' % (note,))
+                else:
+                    self.to_screen('%s: %s (using rate limiting)' % (video_id, note))
+        else:
+            self.report_download_webpage(video_id)
+
+        try:
+            return subprocess.run([self._downloader.params.get('wget_location', 'wget'), '-q', '--limit-rate', str(self._downloader.params.get('wget_limit_rate', 8191)), '-O', '-', url],
+                              check=True, stdout=subprocess.PIPE).stdout.decode(encoding='UTF-8')
+        except subprocess.CalledProcessError as er:
+            # TODO: Report errors better
+            raise ExtractorError(
+                'wget said: %s' % er, expected=True, video_id=video_id)
+        except FileNotFoundError as er:
+            raise FileNotFoundError("wget not found ({})".format(er))
+
     def _extract_signature_function(self, video_id, player_url, example_sig):
         player_type, player_id = self._extract_player_info(player_url)
 
@@ -1319,7 +1373,7 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             'Downloading %s player %s' % (player_type, player_id)
         )
         if player_type == 'js':
-            code = self._download_webpage(
+            code = self._rate_limit_download(
                 player_url, video_id,
                 note=download_note,
                 errnote='Download of %s failed' % player_url)
@@ -1779,10 +1833,7 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
 
         # Get video webpage
         url = proto + '://www.youtube.com/watch?v=%s&gl=US&hl=en&has_verified=1&bpctr=9999999999' % video_id
-        video_webpage, urlh = self._download_webpage_handle(url, video_id)
-
-        qs = compat_parse_qs(compat_urllib_parse_urlparse(urlh.geturl()).query)
-        video_id = qs.get('v', [None])[0] or video_id
+        video_webpage= self._rate_limit_download(url, video_id)
 
         # Attempt to extract SWF player URL
         mobj = re.search(r'swfConfig.*?"(https?:\\/\\/.*?watch.*?-.*?\.swf)"', video_webpage)
@@ -1839,10 +1890,10 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
             })
             video_info_url = proto + '://www.youtube.com/get_video_info?' + data
             try:
-                video_info_webpage = self._download_webpage(
+                video_info_webpage = self._rate_limit_download(
                     video_info_url, video_id,
                     note='Refetching age-gated info webpage',
-                    errnote='unable to download video info webpage')
+                    )
             except ExtractorError:
                 video_info_webpage = None
             if video_info_webpage:
@@ -2076,7 +2127,7 @@ class YoutubeIE(YoutubeBaseInfoExtractor):
                             # We need the embed website after all
                             if embed_webpage is None:
                                 embed_url = proto + '://www.youtube.com/embed/%s' % video_id
-                                embed_webpage = self._download_webpage(
+                                embed_webpage = self._rate_limit_download(
                                     embed_url, video_id, 'Downloading embed webpage')
                             jsplayer_url_json = self._search_regex(
                                 ASSETS_RE, embed_webpage, 'JS player URL')

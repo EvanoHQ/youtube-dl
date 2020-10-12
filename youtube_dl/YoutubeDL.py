@@ -320,6 +320,12 @@ class YoutubeDL(object):
                         data will be downloaded and processed by extractor.
                         You can reduce network I/O by disabling it if you don't
                         care about DASH.
+    youtube_bypass_429: If True (default False), will use wget with rate limiting
+                        to download certain webpages that tend to be rate limited/blocked
+                        by Youtube.
+    wget_location:      Path to wget binary. Only use with youtube_bypass_429.
+    wget_limit_rate:    Set value of wget's --limit-rate manually. Default is 8191.
+                        Only use with youtube_bypass_429.
     """
 
     _NUMERIC_FIELDS = set((

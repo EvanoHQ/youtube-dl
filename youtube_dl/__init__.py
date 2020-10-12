@@ -433,6 +433,9 @@ def _real_main(argv=None):
         'geo_bypass': opts.geo_bypass,
         'geo_bypass_country': opts.geo_bypass_country,
         'geo_bypass_ip_block': opts.geo_bypass_ip_block,
+        'youtube_bypass_429': opts.youtube_bypass_429,
+        'wget_location': opts.wget_location,
+        'wget_limit_rate': opts.wget_limit_rate,
         # just for deprecation check
         'autonumber': opts.autonumber if opts.autonumber is True else None,
         'usetitle': opts.usetitle if opts.usetitle is True else None,
